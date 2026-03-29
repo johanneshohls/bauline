@@ -53,10 +53,47 @@ export async function geocodeAddress(address: string): Promise<GeocodingResult |
   }
 }
 
-// BBOX string for WFS queries — small buffer around point
-// Using CRS84 (lon, lat axis order) which is widely supported
-function makeBbox(lat: number, lon: number, bufferDeg = 0.002): string {
-  return `${lon - bufferDeg},${lat - bufferDeg},${lon + bufferDeg},${lat + bufferDeg},urn:ogc:def:crs:OGC::CRS84`
+// WGS84 → UTM Zone 33N (EPSG:25833) — native CRS of German geodata services
+function wgs84ToUtm33n(lat: number, lon: number): { x: number; y: number } {
+  const a = 6378137.0
+  const f = 1 / 298.257223563
+  const b = a * (1 - f)
+  const e2 = 1 - (b * b) / (a * a)
+  const k0 = 0.9996
+  const FE = 500000 // false easting
+
+  const latR = (lat * Math.PI) / 180
+  const lonR = (lon * Math.PI) / 180
+  const lon0R = (15 * Math.PI) / 180 // central meridian UTM33N
+
+  const dLon = lonR - lon0R
+  const sinLat = Math.sin(latR)
+  const cosLat = Math.cos(latR)
+  const tanLat = Math.tan(latR)
+
+  const N = a / Math.sqrt(1 - e2 * sinLat * sinLat)
+  const T = tanLat * tanLat
+  const C = (e2 / (1 - e2)) * cosLat * cosLat
+  const A = cosLat * dLon
+
+  // Meridional arc
+  const M = a * (
+    (1 - e2 / 4 - (3 * e2 * e2) / 64 - (5 * e2 * e2 * e2) / 256) * latR
+    - (3 * e2 / 8 + (3 * e2 * e2) / 32 + (45 * e2 * e2 * e2) / 1024) * Math.sin(2 * latR)
+    + (15 * e2 * e2 / 256 + (45 * e2 * e2 * e2) / 1024) * Math.sin(4 * latR)
+    - (35 * e2 * e2 * e2 / 3072) * Math.sin(6 * latR)
+  )
+
+  const x = k0 * N * (A + ((1 - T + C) * A * A * A) / 6 + ((5 - 18 * T + T * T + 72 * C) * A * A * A * A * A) / 120) + FE
+  const y = k0 * (M + N * tanLat * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A * A * A * A / 24 + (61 - 58 * T + T * T) * A * A * A * A * A * A / 720))
+
+  return { x, y }
+}
+
+// BBOX in EPSG:25833 (meters) — used for all German WFS services
+function makeBbox(lat: number, lon: number, bufferM = 150): string {
+  const { x, y } = wgs84ToUtm33n(lat, lon)
+  return `${x - bufferM},${y - bufferM},${x + bufferM},${y + bufferM}`
 }
 
 // ALKIS WFS — Flurstücke around coordinates
@@ -66,9 +103,8 @@ export async function fetchFlurstuecke(lat: number, lon: number): Promise<WfsRes
     VERSION: '2.0.0',
     REQUEST: 'GetFeature',
     TYPENAMES: 'ave:Flurstueck',
-    BBOX: makeBbox(lat, lon, 0.001), // ~80m buffer — tight to get the one plot
+    BBOX: makeBbox(lat, lon, 100), // 100m buffer
     outputFormat: 'application/json',
-    SRSNAME: 'EPSG:4326',
     COUNT: '5',
   })
   try {
@@ -89,9 +125,8 @@ export async function fetchGebaeude(lat: number, lon: number): Promise<WfsResult
     VERSION: '2.0.0',
     REQUEST: 'GetFeature',
     TYPENAMES: 'ave:GebaeudeBauwerk',
-    BBOX: makeBbox(lat, lon, 0.0015), // ~120m buffer
+    BBOX: makeBbox(lat, lon, 150), // 150m buffer
     outputFormat: 'application/json',
-    SRSNAME: 'EPSG:4326',
     COUNT: '50',
   })
   try {
@@ -112,9 +147,8 @@ export async function fetchBplan(lat: number, lon: number): Promise<WfsResult | 
     VERSION: '2.0.0',
     REQUEST: 'GetFeature',
     TYPENAMES: 'ms:B_Plan',
-    BBOX: makeBbox(lat, lon, 0.001),
+    BBOX: makeBbox(lat, lon, 100),
     outputFormat: 'application/json',
-    SRSNAME: 'EPSG:4326',
     COUNT: '5',
   })
   try {
@@ -136,9 +170,8 @@ export async function fetchBaugebiet(lat: number, lon: number): Promise<WfsResul
     VERSION: '2.0.0',
     REQUEST: 'GetFeature',
     TYPENAMES: 'ms:BP_Baugebietsteilflaeche',
-    BBOX: makeBbox(lat, lon, 0.001),
+    BBOX: makeBbox(lat, lon, 100),
     outputFormat: 'application/json',
-    SRSNAME: 'EPSG:4326',
     COUNT: '5',
   })
   try {

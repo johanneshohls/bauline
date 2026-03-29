@@ -85,21 +85,22 @@ function wgs84ToUtm33n(lat: number, lon: number): { x: number; y: number } {
     - A6 * Math.sin(6 * latR)
   )
 
-  const dLon2 = dLon * dLon
-  const dLon4 = dLon2 * dLon2
+  // A = (λ - λ₀) × cos(φ) — standard TM parameter
+  const Al = dLon * cosLat
+  const Al2 = Al * Al
+  const Al3 = Al2 * Al
+  const Al4 = Al2 * Al2
+  const Al5 = Al4 * Al
+  const Al6 = Al3 * Al3
 
-  const x = k0 * N * dLon * cosLat * (
-    1
-    + dLon2 * cosLat * cosLat * (1 - T + C) / 6
-    + dLon4 * cosLat * cosLat * cosLat * cosLat * (5 - 18 * T + T * T + 72 * C - 58 * n2) / 120
-  ) + FE
+  const x = k0 * N * (Al + Al3 * (1 - T + C) / 6 + Al5 * (5 - 18 * T + T * T + 72 * C - 58 * n2) / 120) + FE
 
   const y = k0 * (
     M
     + N * tanLat * (
-      dLon2 / 2
-      + dLon4 * (5 - T + 9 * C + 4 * C * C) / 24
-      + dLon2 * dLon4 * (61 - 58 * T + T * T + 600 * C - 330 * n2) / 720
+      Al2 / 2
+      + Al4 * (5 - T + 9 * C + 4 * C * C) / 24
+      + Al6 * (61 - 58 * T + T * T + 600 * C - 330 * n2) / 720
     )
   )
 

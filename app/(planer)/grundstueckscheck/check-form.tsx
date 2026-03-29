@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { MapView } from './map-view'
 
 interface CheckResult {
   check_id: string | null
@@ -203,6 +204,13 @@ function CheckResult({ result }: { result: CheckResult }) {
           </div>
         )}
       </div>
+
+      {/* Karte */}
+      <MapView
+        lat={result.coordinates.lat}
+        lon={result.coordinates.lon}
+        label={result.address}
+      />
 
       {/* Data grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

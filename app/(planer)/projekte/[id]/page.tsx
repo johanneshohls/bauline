@@ -93,7 +93,7 @@ export default async function ProjektDetailPage({
       {/* Header */}
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-4">
         <div className="flex items-start justify-between">
-          <div>
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">
               <h1 className="text-lg font-semibold text-gray-900">{proj.name}</h1>
               <span
@@ -109,6 +109,12 @@ export default async function ProjektDetailPage({
               <p className="text-sm text-gray-500">Bauherr: {proj.clients.name}</p>
             )}
           </div>
+          <Link
+            href={`/projekte/${id}/bearbeiten`}
+            className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 px-3 py-1.5 rounded-md hover:border-gray-300 transition-colors shrink-0 ml-4"
+          >
+            Bearbeiten
+          </Link>
         </div>
 
         {/* Fortschrittsbalken */}

@@ -1,6 +1,6 @@
 export type BuildingType = 'neubau' | 'umbau' | 'anbau' | 'nutzungsaenderung'
 export type ProjectStatus = 'aktiv' | 'eingereicht' | 'genehmigt' | 'archiviert'
-export type ChecklistStatus = 'offen' | 'in_arbeit' | 'eingereicht' | 'geprueft' | 'nachbesserung'
+export type ChecklistStatus = 'offen' | 'in_arbeit' | 'eingereicht' | 'geprueft' | 'nachbesserung' | 'nicht_relevant'
 export type ChecklistCategory = 'antrag' | 'zeichnungen' | 'berechnungen' | 'nachweise' | 'bauherr' | 'fachplaner' | 'behoerde'
 export type Responsible = 'planer' | 'bauherr' | 'fachplaner'
 

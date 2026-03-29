@@ -1,4 +1,4 @@
-import type { ChecklistCategory, ProjectParams, Responsible } from './types'
+import type { ChecklistCategory, ChecklistItem, ProjectParams, Responsible } from './types'
 
 export interface ChecklistItemTemplate {
   title: string
@@ -116,6 +116,50 @@ export function generateChecklist(params: ProjectParams): ChecklistItemTemplate[
   return items
 }
 
+// ─── Diff: Checkliste nach Parameteränderung abgleichen ───────────────────────
+//
+// Strategie (Option B):
+// - Neue Items adden (falls Titel noch nicht in der DB)
+// - Items die nicht mehr zutreffen: nur auf nicht_relevant setzen wenn
+//   status === 'offen' UND keine Datei hochgeladen
+// - Items mit Datei oder status >= in_arbeit werden nie angefasst
+
+export interface ChecklistDiff {
+  toAdd: ChecklistItemTemplate[]
+  toDeactivate: string[]  // item IDs
+}
+
+export function diffChecklist(
+  params: ProjectParams,
+  existingItems: ChecklistItem[]
+): ChecklistDiff {
+  const target = generateChecklist(params)
+  const targetTitles = new Set(target.map((i) => i.title))
+
+  // Items die neu sind (Titel noch nicht vorhanden, auch nicht nicht_relevant)
+  const existingTitles = new Set(
+    existingItems
+      .filter((i) => i.status !== 'nicht_relevant')
+      .map((i) => i.title)
+  )
+  const toAdd = target.filter((t) => !existingTitles.has(t.title))
+
+  // Items die nicht mehr benötigt werden:
+  // - Titel nicht in target-Liste
+  // - Status ist 'offen'
+  // - Keine Datei hochgeladen
+  const toDeactivate = existingItems
+    .filter(
+      (i) =>
+        !targetTitles.has(i.title) &&
+        i.status === 'offen' &&
+        !i.file_url
+    )
+    .map((i) => i.id)
+
+  return { toAdd, toDeactivate }
+}
+
 // ─── Gruppierhilfe für die UI ──────────────────────────────────────────────────
 
 export const responsibleLabels: Record<Responsible, string> = {
@@ -140,6 +184,7 @@ export const statusLabels: Record<string, string> = {
   eingereicht: 'Eingereicht',
   geprueft: 'Geprüft',
   nachbesserung: 'Nachbesserung',
+  nicht_relevant: 'Nicht relevant',
 }
 
 export const statusColors: Record<string, string> = {
@@ -148,4 +193,5 @@ export const statusColors: Record<string, string> = {
   eingereicht: 'bg-yellow-100 text-yellow-700',
   geprueft: 'bg-green-100 text-green-700',
   nachbesserung: 'bg-red-100 text-red-700',
+  nicht_relevant: 'bg-gray-50 text-gray-400',
 }

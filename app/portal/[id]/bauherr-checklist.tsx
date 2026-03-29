@@ -9,8 +9,9 @@ const statusDisplay: Record<ChecklistStatus, { label: string; color: string }> =
   offen: { label: 'Noch ausstehend', color: 'text-gray-500' },
   in_arbeit: { label: 'In Bearbeitung', color: 'text-blue-600' },
   eingereicht: { label: 'Eingereicht', color: 'text-green-600' },
-  geprueft: { label: 'Geprueft', color: 'text-green-700' },
+  geprueft: { label: 'Geprüft', color: 'text-green-700' },
   nachbesserung: { label: 'Nachbesserung nötig', color: 'text-red-600' },
+  nicht_relevant: { label: 'Nicht relevant', color: 'text-gray-400' },
 }
 
 export function BauherrChecklist({ item }: { item: ChecklistItem }) {

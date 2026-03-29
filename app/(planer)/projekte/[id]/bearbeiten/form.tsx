@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { Project, BuildingType, ProjectStatus } from '@/lib/types'
+import type { Project, BuildingType, ProjectStatus, ProjectParams } from '@/lib/types'
+import { diffChecklist } from '@/lib/checklist'
 
 type ProjectWithClient = Project & {
   clients: { id: string; name: string; email: string | null; phone: string | null } | null
@@ -76,6 +77,49 @@ export function ProjektBearbeitenForm({ project }: { project: ProjectWithClient 
         .eq('id', project.id)
 
       if (projErr) throw projErr
+
+      // Checklisten-Diff ausführen
+      const newParams: ProjectParams = {
+        building_type,
+        building_class: building_class ? Number(building_class) : null,
+        is_sonderbau,
+        is_denkmal,
+        is_aussenbereich,
+        is_kuestenzone,
+        no_public_sewer,
+      }
+
+      const { data: existingItems } = await supabase
+        .from('checklist_items')
+        .select('*')
+        .eq('project_id', project.id)
+
+      const { toAdd, toDeactivate } = diffChecklist(newParams, existingItems ?? [])
+
+      // Neue Items anlegen
+      if (toAdd.length > 0) {
+        const maxSort = (existingItems ?? []).reduce(
+          (m, i) => Math.max(m, i.sort_order ?? 0), 0
+        )
+        await supabase.from('checklist_items').insert(
+          toAdd.map((item, idx) => ({
+            project_id: project.id,
+            title: item.title,
+            category: item.category,
+            responsible: item.responsible,
+            fachplaner_name: item.fachplaner_name ?? null,
+            sort_order: maxSort + idx + 1,
+          }))
+        )
+      }
+
+      // Nicht mehr relevante Items deaktivieren
+      if (toDeactivate.length > 0) {
+        await supabase
+          .from('checklist_items')
+          .update({ status: 'nicht_relevant' })
+          .in('id', toDeactivate)
+      }
 
       router.push(`/projekte/${project.id}`)
       router.refresh()

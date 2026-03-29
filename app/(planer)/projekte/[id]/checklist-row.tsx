@@ -76,8 +76,10 @@ export function ChecklistRow({ item }: { item: ChecklistItem }) {
     startTransition(() => router.refresh())
   }
 
+  const isDeactivated = status === 'nicht_relevant'
+
   return (
-    <div className="px-4 py-3">
+    <div className={`px-4 py-3 ${isDeactivated ? 'opacity-50' : ''}`}>
       <div className="flex items-center gap-3">
         {/* Status-Indikator */}
         <div
@@ -88,13 +90,15 @@ export function ChecklistRow({ item }: { item: ChecklistItem }) {
               ? 'bg-red-400'
               : status === 'in_arbeit'
               ? 'bg-blue-400'
-              : 'bg-gray-300'
+              : 'bg-gray-200'
           }`}
         />
 
         {/* Titel + Kategorie */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-gray-900 leading-snug">{item.title}</p>
+          <p className={`text-sm leading-snug ${isDeactivated ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+            {item.title}
+          </p>
           <div className="flex items-center gap-2 mt-0.5">
             <p className="text-xs text-gray-400">{categoryLabels[item.category]}</p>
             {fileName && (
@@ -137,7 +141,7 @@ export function ChecklistRow({ item }: { item: ChecklistItem }) {
             e.target.value = ''
           }}
         />
-        <button
+        {!isDeactivated && <button
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
           title="Dokument hochladen"
@@ -153,7 +157,7 @@ export function ChecklistRow({ item }: { item: ChecklistItem }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
             </svg>
           )}
-        </button>
+        </button>}
 
         {/* Status-Dropdown */}
         <select

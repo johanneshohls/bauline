@@ -52,8 +52,9 @@ export default async function ProjektDetailPage({
   const proj = project as Project & { clients: { name: string; email: string | null } | null }
   const allItems = (items ?? []) as ChecklistItem[]
 
-  const totalCount = allItems.length
-  const doneCount = allItems.filter(
+  const relevantItems = allItems.filter((i) => i.status !== 'nicht_relevant')
+  const totalCount = relevantItems.length
+  const doneCount = relevantItems.filter(
     (i) => i.status === 'geprueft' || i.status === 'eingereicht'
   ).length
 

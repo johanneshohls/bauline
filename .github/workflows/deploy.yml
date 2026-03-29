@@ -32,6 +32,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_APP_URL: https://bauline.app
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1
@@ -47,6 +48,7 @@ jobs:
             NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }} \
             NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }} \
             NEXT_PUBLIC_APP_URL=https://bauline.app \
+            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }} \
             npm run build
             PORT=3005 pm2 restart bauline || PORT=3005 pm2 start npm --name "bauline" -- start
             pm2 save

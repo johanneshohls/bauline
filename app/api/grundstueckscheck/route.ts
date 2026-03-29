@@ -3,11 +3,10 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import {
   geocodeAddress,
-  fetchFlurstuecke,
-  fetchGebaeude,
+  fetchGebaeudeCount,
+  fetchFlurstueck,
   fetchBplan,
   fetchBaugebiet,
-  type WfsFeature,
 } from '@/lib/wfs'
 
 const anthropic = new Anthropic({
@@ -36,48 +35,46 @@ export async function POST(request: NextRequest) {
   const { lat, lon } = geocoded
 
   // Step 2: Fetch WFS data in parallel
-  const [flurstueckeRaw, gebaeudeRaw, bplanRaw, baugebietRaw] = await Promise.allSettled([
-    fetchFlurstuecke(lat, lon),
-    fetchGebaeude(lat, lon),
+  const [gebaeudeCount, flurstueck, bplan, baugebiet] = await Promise.all([
+    fetchGebaeudeCount(lat, lon),
+    fetchFlurstueck(lat, lon),
     fetchBplan(lat, lon),
     fetchBaugebiet(lat, lon),
   ])
 
-  const flurstuecke = flurstueckeRaw.status === 'fulfilled' ? flurstueckeRaw.value : null
-  const gebaeude = gebaeudeRaw.status === 'fulfilled' ? gebaeudeRaw.value : null
-  const bplan = bplanRaw.status === 'fulfilled' ? bplanRaw.value : null
-  const baugebiet = baugebietRaw.status === 'fulfilled' ? baugebietRaw.value : null
-
-  // Extract key data
-  const flurstueckFeature = flurstuecke?.features?.[0] ?? null
-  const flurstueckProps = flurstueckFeature?.properties ?? {}
-  const gebaeudeCount = gebaeude?.features?.length ?? 0
-  const bplanFeatures = bplan?.features ?? []
-  const baugebietFeatures = baugebiet?.features ?? []
-  const hasBplan = bplanFeatures.length > 0
-
-  // Extract B-Plan info
-  const bplanName = hasBplan
-    ? (bplanFeatures[0]?.properties?.['name'] as string | undefined) ||
-      (bplanFeatures[0]?.properties?.['nummer'] as string | undefined) ||
-      'Unbekannter B-Plan'
+  const hasBplan = bplan !== null
+  const bplanName = bplan
+    ? (bplan.name ?? bplan.nummer ?? 'Unbekannter B-Plan')
     : null
 
-  const nutzungsart = baugebietFeatures[0]?.properties?.['nutzungsart'] as string | undefined
-  const grzValue = baugebietFeatures[0]?.properties?.['GRZ'] as number | undefined
-  const gfzValue = baugebietFeatures[0]?.properties?.['GFZ'] as number | undefined
-
   // Step 3: Claude KI-Analyse
-  const contextData = buildContextData({
-    address,
-    displayName: geocoded.display_name,
-    lat, lon,
-    flurstueckProps,
-    gebaeudeCount,
-    bplanFeatures,
-    baugebietFeatures,
-    hasBplan,
-  })
+  const contextLines = [
+    `Adresse: ${address}`,
+    `Gefundene Adresse: ${geocoded.display_name}`,
+    `Koordinaten: ${lat.toFixed(6)}, ${lon.toFixed(6)}`,
+    '',
+    `Gebäude im Umfeld (~700m Radius): ${gebaeudeCount} Gebäude`,
+    '',
+  ]
+
+  if (flurstueck) {
+    contextLines.push('ALKIS Flurstücksdaten:')
+    if (flurstueck.kennzeichen) contextLines.push(`  Kennzeichen: ${flurstueck.kennzeichen}`)
+    if (flurstueck.flaeche_m2) contextLines.push(`  Amtliche Fläche: ${flurstueck.flaeche_m2} m²`)
+    if (flurstueck.lagebezeichnung) contextLines.push(`  Lage: ${flurstueck.lagebezeichnung}`)
+    contextLines.push('')
+  }
+
+  if (hasBplan) {
+    contextLines.push(`BAULEITPLANUNG: B-Plan vorhanden — ${bplanName}`)
+    if (baugebiet?.nutzungsart) contextLines.push(`  Nutzungsart: ${baugebiet.nutzungsart}`)
+    if (baugebiet?.grz) contextLines.push(`  GRZ: ${baugebiet.grz}`)
+    if (baugebiet?.gfz) contextLines.push(`  GFZ: ${baugebiet.gfz}`)
+  } else {
+    contextLines.push('BAULEITPLANUNG: Kein B-Plan gefunden')
+  }
+
+  const contextData = contextLines.join('\n')
 
   let kiEinschaetzung = ''
   let kiWarnungen: string[] = []
@@ -108,10 +105,10 @@ Antworte ausschließlich als JSON in diesem Format:
 
 Regeln:
 - "bplan" wenn ein B-Plan gefunden wurde
-- "paragraph_34" wenn ${gebaeudeCount} Gebäude im Umfeld (>8 Gebäude = starker Hinweis auf Innenbereich)
-- "paragraph_35" wenn kaum Gebäude im Umfeld (<3 Gebäude)
+- "paragraph_34" wenn ${gebaeudeCount} Gebäude im weiteren Umfeld (Hinweis auf Innenbereich wenn >15 Gebäude)
+- "paragraph_35" wenn kaum Gebäude im Umfeld (<5 Gebäude)
 - "unbekannt" wenn unklar
-- Warnungen: max. 3, nur wenn wirklich relevant (Denkmalschutz, Küstenschutz, Außenbereich-Restriktionen)
+- Warnungen: max. 3, nur wenn wirklich relevant
 - Empfehlungen: 2-4 konkrete nächste Schritte für den Planer
 - Antworte nur auf Deutsch`,
           },
@@ -135,17 +132,15 @@ Regeln:
         }
       }
     } catch {
-      // Claude call failed — continue without AI analysis
+      planungsrecht = hasBplan ? 'bplan' : gebaeudeCount >= 15 ? 'paragraph_34' : gebaeudeCount < 5 ? 'paragraph_35' : 'unbekannt'
       kiEinschaetzung = hasBplan
         ? `Für dieses Grundstück liegt ein Bebauungsplan vor (${bplanName}). Die Bebaubarkeit richtet sich nach §30 BauGB.`
-        : gebaeudeCount >= 8
-        ? `Das Grundstück befindet sich voraussichtlich im unbeplanten Innenbereich (§34 BauGB). ${gebaeudeCount} Gebäude wurden im näheren Umfeld gefunden.`
+        : gebaeudeCount >= 15
+        ? `Das Grundstück befindet sich voraussichtlich im unbeplanten Innenbereich (§34 BauGB). ${gebaeudeCount} Gebäude wurden im weiteren Umfeld gefunden.`
         : `Planungsrechtliche Einordnung unklar. Bitte Bebauungsplan und Flächennutzungsplan der Gemeinde prüfen.`
-      planungsrecht = hasBplan ? 'bplan' : gebaeudeCount >= 8 ? 'paragraph_34' : 'unbekannt'
     }
   } else {
-    // No API key — simple heuristic
-    planungsrecht = hasBplan ? 'bplan' : gebaeudeCount >= 8 ? 'paragraph_34' : gebaeudeCount < 3 ? 'paragraph_35' : 'unbekannt'
+    planungsrecht = hasBplan ? 'bplan' : gebaeudeCount >= 15 ? 'paragraph_34' : gebaeudeCount < 5 ? 'paragraph_35' : 'unbekannt'
     kiEinschaetzung = hasBplan
       ? `Für dieses Grundstück liegt ein Bebauungsplan vor (${bplanName}). Die Bebaubarkeit richtet sich nach §30 BauGB.`
       : `Planungsrechtliche Einordnung basierend auf ${gebaeudeCount} Gebäuden im Umfeld.`
@@ -157,17 +152,17 @@ Regeln:
     .insert({
       project_id: project_id ?? null,
       address,
-      flurstueck_nr: (flurstueckProps['flurstueckkennzeichen'] as string | undefined) ?? null,
-      grundstueck_m2: (flurstueckProps['amtlicheFlaeche'] as number | undefined) ?? null,
+      flurstueck_nr: flurstueck?.kennzeichen ?? null,
+      grundstueck_m2: flurstueck?.flaeche_m2 ?? null,
       planungsrecht,
       bplan_name: bplanName,
-      nutzungsart: nutzungsart ?? null,
-      grz: grzValue ?? null,
-      gfz: gfzValue ?? null,
+      nutzungsart: baugebiet?.nutzungsart ?? null,
+      grz: baugebiet?.grz ?? null,
+      gfz: baugebiet?.gfz ?? null,
       ki_einschaetzung: kiEinschaetzung,
       ki_warnungen: kiWarnungen,
-      raw_bplan: bplan ? { features: bplanFeatures.slice(0, 3) } : null,
-      raw_alkis: flurstueckFeature ? { feature: { properties: flurstueckProps } } : null,
+      raw_bplan: bplan ? { name: bplan.name, nummer: bplan.nummer } : null,
+      raw_alkis: flurstueck ? { kennzeichen: flurstueck.kennzeichen, flaeche_m2: flurstueck.flaeche_m2 } : null,
     })
     .select('id')
     .single()
@@ -178,18 +173,17 @@ Regeln:
     display_name: geocoded.display_name,
     coordinates: { lat, lon },
     flurstueck: {
-      found: !!flurstueckFeature,
-      kennzeichen: (flurstueckProps['flurstueckkennzeichen'] as string | undefined) ?? null,
-      flaeche_m2: (flurstueckProps['amtlicheFlaeche'] as number | undefined) ?? null,
-      lagebezeichnung: (flurstueckProps['lagebezeichnung'] as string | undefined) ?? null,
+      found: flurstueck !== null,
+      kennzeichen: flurstueck?.kennzeichen ?? null,
+      flaeche_m2: flurstueck?.flaeche_m2 ?? null,
+      lagebezeichnung: flurstueck?.lagebezeichnung ?? null,
     },
     bplan: {
       found: hasBplan,
       name: bplanName,
-      count: bplanFeatures.length,
-      nutzungsart: nutzungsart ?? null,
-      grz: grzValue ?? null,
-      gfz: gfzValue ?? null,
+      nutzungsart: baugebiet?.nutzungsart ?? null,
+      grz: baugebiet?.grz ?? null,
+      gfz: baugebiet?.gfz ?? null,
     },
     gebaeude_count: gebaeudeCount,
     planungsrecht,
@@ -197,59 +191,4 @@ Regeln:
     ki_warnungen: kiWarnungen,
     ki_empfehlungen: kiEmpfehlungen,
   })
-}
-
-function buildContextData(data: {
-  address: string
-  displayName: string
-  lat: number
-  lon: number
-  flurstueckProps: Record<string, unknown>
-  gebaeudeCount: number
-  bplanFeatures: WfsFeature[]
-  baugebietFeatures: WfsFeature[]
-  hasBplan: boolean
-}): string {
-  const lines: string[] = [
-    `Adresse: ${data.address}`,
-    `Gefundene Adresse: ${data.displayName}`,
-    `Koordinaten: ${data.lat.toFixed(6)}, ${data.lon.toFixed(6)}`,
-    '',
-  ]
-
-  if (data.flurstueckProps && Object.keys(data.flurstueckProps).length > 0) {
-    lines.push('ALKIS Flurstücksdaten:')
-    if (data.flurstueckProps['flurstueckkennzeichen']) {
-      lines.push(`  Kennzeichen: ${data.flurstueckProps['flurstueckkennzeichen']}`)
-    }
-    if (data.flurstueckProps['amtlicheFlaeche']) {
-      lines.push(`  Amtliche Fläche: ${data.flurstueckProps['amtlicheFlaeche']} m²`)
-    }
-    if (data.flurstueckProps['lagebezeichnung']) {
-      lines.push(`  Lagebezeichnung: ${data.flurstueckProps['lagebezeichnung']}`)
-    }
-    lines.push('')
-  }
-
-  lines.push(`Gebäude im Umfeld (ca. 120m Radius): ${data.gebaeudeCount} Gebäude`)
-  lines.push('')
-
-  if (data.hasBplan) {
-    lines.push(`BAULEITPLANUNG: ${data.bplanFeatures.length} B-Plan(Pläne) gefunden`)
-    data.bplanFeatures.slice(0, 2).forEach((f, i) => {
-      const props = f.properties
-      lines.push(`  B-Plan ${i + 1}:`)
-      if (props['name']) lines.push(`    Name: ${props['name']}`)
-      if (props['nummer']) lines.push(`    Nummer: ${props['nummer']}`)
-      if (props['gemeinde']) lines.push(`    Gemeinde: ${props['gemeinde']}`)
-    })
-    if (data.baugebietFeatures.length > 0) {
-      const bg = data.baugebietFeatures[0].properties
-      lines.push(`  Baugebiet: Nutzungsart=${bg['nutzungsart'] ?? 'unbekannt'}, GRZ=${bg['GRZ'] ?? '-'}, GFZ=${bg['GFZ'] ?? '-'}`)
-    }
-  } else {
-    lines.push('BAULEITPLANUNG: Kein B-Plan gefunden')
-  }
-
-  return lines.join('\n')
 }
